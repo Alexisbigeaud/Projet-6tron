@@ -43,6 +43,9 @@ Ticker ticker;// Ticker
 EventQueue queue;// Event queue
 Thread eventThread;// Thread
 
+uint64_t now = Kernel::get_ms_count();
+uint64_t later = Kernel::get_ms_count();
+
 
 // Network
 NetworkInterface *network;
@@ -108,7 +111,11 @@ void temp_hum() {
     float temperature = sensor.temperature();
     char mqttPayloadTemp[20];
     int charsWrittenTemp = snprintf(mqttPayloadTemp, sizeof(mqttPayloadTemp), "%f", temperature);
-
+    later = Kernel::get_ms_count();
+    if (later - now < 1000) {
+        ThisThread::sleep_for(1000-(later-now));
+        printf("Sleep for %d ms\n", 1000-(later-now));
+    }
     MQTT::Message messageTemp;
     messageTemp.qos = MQTT::QOS1;
     messageTemp.retained = false;
@@ -121,6 +128,7 @@ void temp_hum() {
     if (rc != 0) {
         printf("Failed to publish Temperature: %d\n", rc);
     }
+    now = Kernel::get_ms_count();
 
     ThisThread::sleep_for(4000ms);
 
@@ -128,6 +136,12 @@ void temp_hum() {
     char mqttPayloadHum[20];
     int charsWrittenHum = snprintf(mqttPayloadHum, sizeof(mqttPayloadHum), "%f", humidity);
 
+    later = Kernel::get_ms_count();
+    if (later - now < 1000) {
+        ThisThread::sleep_for(1000-(later-now));
+        printf("Sleep for %d ms\n", 1000-(later-now));
+    }
+    
     MQTT::Message messageHum;
     messageHum.qos = MQTT::QOS1;
     messageHum.retained = false;
@@ -140,6 +154,7 @@ void temp_hum() {
     if (rc != 0) {
         printf("Failed to publish Humidity: %d\n", rc);
     }
+    now = Kernel::get_ms_count();
 }
 
 static int8_t publish() {
@@ -148,6 +163,17 @@ static int8_t publish() {
     char mqttPayloadPressure[20];
     int charsWrittenPressure = snprintf(mqttPayloadPressure, sizeof(mqttPayloadPressure), "%f", pressure);
 
+    uint64_t later = Kernel::get_ms_count();
+    if (later - now < 1000) {
+        ThisThread::sleep_for(1000-(later-now));
+        printf("Sleep for %d ms\n", 1000-(later-now));
+    }
+    
+    later = Kernel::get_ms_count();
+    if (later - now < 1000) {
+        ThisThread::sleep_for(1000-(later-now));
+        printf("Sleep for %d ms\n", 1000-(later-now));
+    }
     MQTT::Message messagePressure;
     messagePressure.qos = MQTT::QOS1;
     messagePressure.retained = false;
@@ -155,12 +181,12 @@ static int8_t publish() {
     messagePressure.payload = (void*)mqttPayloadPressure;
     messagePressure.payloadlen = strlen(mqttPayloadPressure);
 
-    printf("Send: %s to MQTT Broker: %s\n", mqttPayloadPressure, hostname);
+    printf("Send: %s to MQTT Broker: %s Pa\n", mqttPayloadPressure, hostname);
     rc = client->publish(MQTT_TOPIC_PUBLISH"/Pressure", messagePressure);
     if (rc != 0) {
         printf("Failed to publish Pressure: %d\n", rc);
     }
-
+    now = Kernel::get_ms_count();
     return 0;
 }
 // main() runs in its own thread in the OS
@@ -243,6 +269,8 @@ int main()
 
     // Publish
     button.fall(main_queue.event(publish));
+
+    now = Kernel::get_ms_count();
 
     main_queue.dispatch_forever();
 }
