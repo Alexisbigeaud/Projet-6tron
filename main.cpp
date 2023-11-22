@@ -26,24 +26,23 @@ namespace {
 
 #define IO_USERNAME  "ARAHARA"
 #define IO_KEY       "aio_FWuu99W6kBGdYqeaPNTA3FNGZ3qV"
-#define MQTT_CLIENT_ID "6TRON"
-#define MQTT_TOPIC_SUBSCRIBE "ARAHARA/feed/led"
-#define MQTT_TOPIC_PUBLISH "ARAHARA/feed"
+#define MQTT_CLIENT_ID "6TRONzedboard"
+#define MQTT_TOPIC_SUBSCRIBE "ARAHARA/feeds/led"
+#define MQTT_TOPIC_PUBLISH "ARAHARA/feeds"
+#define SYNC_INTERVAL           1
 
-#define PERIOD_MS 2000ms
-#define TICKER_PERIOD 5000ms
+#define TICKER_PERIOD 8000ms
 }
 
 // Peripherals
 static DigitalOut led(LED1);
 static InterruptIn button(BUTTON1);
 I2C bus(I2C1_SDA, I2C1_SCL);
-
-
-
+BME280 sensor(&bus);
 Ticker ticker;// Ticker
-EventQueue queue; // File d'événements
-Thread eventThread; // Thread pour exécuter la file d'événements
+EventQueue queue;// Event queue
+Thread eventThread;// Thread
+
 
 // Network
 NetworkInterface *network;
@@ -51,7 +50,7 @@ MQTTClient *client;
 
 // MQTT
 // const char* hostname = "fd9f:590a:b158::1";
-const char* hostname = "broker.hivemq.com";
+const char* hostname = "io.adafruit.com";
 int port = 1883;
 
 // Error code
@@ -77,19 +76,9 @@ void messageArrived(MQTT::MessageData& md)
     char_payload = (char *) message.payload; // get the arrived payload in our buffer
     char_payload[message.payloadlen] = '\0'; // String must be null terminated
 
-    // Compare our payload with known command strings
-    if (strcmp(char_payload, "ON") == 0) {
-        led = 1;
-    }
-    else if (strcmp(char_payload, "OFF") == 0) {
-        led = 0;
-    }
-    else if (strcmp(char_payload, "RESET") == 0) {
-        printf("RESETTING ...\n");
-        system_reset();
-    }
-    else if (strcmp(char_payload, "LED") == 0) {
+    if (strcmp(char_payload, "LED") == 0) {
         led = !led;
+        printf("LED");
     }
 }
 
@@ -115,46 +104,65 @@ static void yield(){
  *  \brief Publish data over the corresponding adafruit MQTT topic
  *
  */
+void temp_hum() {
+    float temperature = sensor.temperature();
+    char mqttPayloadTemp[20];
+    int charsWrittenTemp = snprintf(mqttPayloadTemp, sizeof(mqttPayloadTemp), "%f", temperature);
+
+    MQTT::Message messageTemp;
+    messageTemp.qos = MQTT::QOS1;
+    messageTemp.retained = false;
+    messageTemp.dup = false;
+    messageTemp.payload = (void*)mqttPayloadTemp;
+    messageTemp.payloadlen = strlen(mqttPayloadTemp);
+
+    printf("Send: %s to MQTT Broker: %s\n", mqttPayloadTemp, hostname);
+    rc = client->publish(MQTT_TOPIC_PUBLISH"/Temperature", messageTemp);
+    if (rc != 0) {
+        printf("Failed to publish Temperature: %d\n", rc);
+    }
+
+    ThisThread::sleep_for(4000ms);
+
+    float humidity = sensor.humidity();
+    char mqttPayloadHum[20];
+    int charsWrittenHum = snprintf(mqttPayloadHum, sizeof(mqttPayloadHum), "%f", humidity);
+
+    MQTT::Message messageHum;
+    messageHum.qos = MQTT::QOS1;
+    messageHum.retained = false;
+    messageHum.dup = false;
+    messageHum.payload = (void*)mqttPayloadHum;
+    messageHum.payloadlen = strlen(mqttPayloadHum);
+
+    printf("Send: %s to MQTT Broker: %s\n", mqttPayloadHum, hostname);
+    rc = client->publish(MQTT_TOPIC_PUBLISH"/Humidity", messageHum);
+    if (rc != 0) {
+        printf("Failed to publish Humidity: %d\n", rc);
+    }
+}
+
 static int8_t publish() {
-
-
     float pressure = sensor.pressure();
 
-    char mqttPayload[20]; 
-  
-    int charsWritten = snprintf(mqttPayload, sizeof(mqttPayload), "%f", pressure);
-    
-    if (charsWritten < 0 || charsWritten >= sizeof(mqttPayload)) {
-        // La conversion a échoué ou la chaîne est trop longue pour mqttPayload
-        printf("Failed to convert pressure to string\n");
-        return -1; // Code d'erreur approprié
-    }
+    char mqttPayloadPressure[20];
+    int charsWrittenPressure = snprintf(mqttPayloadPressure, sizeof(mqttPayloadPressure), "%f", pressure);
 
+    MQTT::Message messagePressure;
+    messagePressure.qos = MQTT::QOS1;
+    messagePressure.retained = false;
+    messagePressure.dup = false;
+    messagePressure.payload = (void*)mqttPayloadPressure;
+    messagePressure.payloadlen = strlen(mqttPayloadPressure);
 
-    MQTT::Message message;
-    message.qos = MQTT::QOS1;
-    message.retained = false;
-    message.dup = false;
-    message.payload = (void*)mqttPayload;
-    message.payloadlen = strlen(mqttPayload);
-
-    printf("Send: %s to MQTT Broker: %s\n", mqttPayload, hostname);
-    rc = client->publish(MQTT_TOPIC_PUBLISH, message);
+    printf("Send: %s to MQTT Broker: %s\n", mqttPayloadPressure, hostname);
+    rc = client->publish(MQTT_TOPIC_PUBLISH"/Pressure", messagePressure);
     if (rc != 0) {
-        printf("Failed to publish: %d\n", rc);
-        return rc;
+        printf("Failed to publish Pressure: %d\n", rc);
     }
+
     return 0;
 }
-
-void toggleLED() {
-    led = !led;
-}
-
-void printPressure() {
-    queue.call(printf, "Pressure: %f\n", sensor.pressure());
-}
-
 // main() runs in its own thread in the OS
 // (note the calls to ThisThread::sleep_for below for delays)
 
@@ -207,9 +215,9 @@ int main()
     MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
     data.MQTTVersion = 4;
     data.keepAliveInterval = 25;
-    data.clientID.cstring = (char*) "6TRON";
-    data.username.cstring = (char*) "ARAHARA"; // Adafruit username
-    data.password.cstring = (char*) "aio_FWuu99W6kBGdYqeaPNTA3FNGZ3qV"; // Adafruit user key
+    data.clientID.cstring = (char*) MQTT_CLIENT_ID;
+    data.username.cstring = (char*) IO_USERNAME; // Adafruit username
+    data.password.cstring = (char*) IO_KEY; // Adafruit user key
 
     if (client->connect(data) != 0){
         printf("Connection to MQTT Broker Failed\n");
@@ -231,12 +239,7 @@ int main()
     eventThread.start(callback(&queue, &EventQueue::dispatch_forever));
     sensor.initialize();
     sensor.set_sampling();
-    while(1) {
-        float temperature = sensor.temperature();
-        float humidity = sensor.humidity();
-        printf("Temperature: %f°C, Humidity: %f%\n", temperature, humidity);
-        ThisThread::sleep_for(PERIOD_MS);
-    }
+    ticker.attach(main_queue.event(temp_hum), TICKER_PERIOD);
 
     // Publish
     button.fall(main_queue.event(publish));
