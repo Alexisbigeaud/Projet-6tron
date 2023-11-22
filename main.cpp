@@ -17,18 +17,33 @@
 #include "mbed.h"
 #include <nsapi_dns.h>
 #include <MQTTClientMbedOs.h>
+#include "BME280.h"
+
+//namespace sixtron 
+using namespace sixtron;
 
 namespace {
-#define GROUP_NUMBER            "group2"
-#define MQTT_TOPIC_PUBLISH      "/estia/"GROUP_NUMBER"/uplink"
-#define MQTT_TOPIC_SUBSCRIBE    "/estia/"GROUP_NUMBER"/downlink"
-#define SYNC_INTERVAL           1
-#define MQTT_CLIENT_ID          "6LoWPAN_Node_"GROUP_NUMBER
+
+#define IO_USERNAME  "ARAHARA"
+#define IO_KEY       "aio_FWuu99W6kBGdYqeaPNTA3FNGZ3qV"
+#define MQTT_CLIENT_ID "6TRON"
+#define MQTT_TOPIC_SUBSCRIBE "ARAHARA/feed/led"
+#define MQTT_TOPIC_PUBLISH "ARAHARA/feed"
+
+#define PERIOD_MS 2000ms
+#define TICKER_PERIOD 5000ms
 }
 
 // Peripherals
 static DigitalOut led(LED1);
 static InterruptIn button(BUTTON1);
+I2C bus(I2C1_SDA, I2C1_SCL);
+
+
+
+Ticker ticker;// Ticker
+EventQueue queue; // File d'événements
+Thread eventThread; // Thread pour exécuter la file d'événements
 
 // Network
 NetworkInterface *network;
@@ -73,6 +88,9 @@ void messageArrived(MQTT::MessageData& md)
         printf("RESETTING ...\n");
         system_reset();
     }
+    else if (strcmp(char_payload, "LED") == 0) {
+        led = !led;
+    }
 }
 
 /*!
@@ -99,7 +117,19 @@ static void yield(){
  */
 static int8_t publish() {
 
-    char *mqttPayload = "Hello from 6TRON";
+
+    float pressure = sensor.pressure();
+
+    char mqttPayload[20]; 
+  
+    int charsWritten = snprintf(mqttPayload, sizeof(mqttPayload), "%f", pressure);
+    
+    if (charsWritten < 0 || charsWritten >= sizeof(mqttPayload)) {
+        // La conversion a échoué ou la chaîne est trop longue pour mqttPayload
+        printf("Failed to convert pressure to string\n");
+        return -1; // Code d'erreur approprié
+    }
+
 
     MQTT::Message message;
     message.qos = MQTT::QOS1;
@@ -115,6 +145,14 @@ static int8_t publish() {
         return rc;
     }
     return 0;
+}
+
+void toggleLED() {
+    led = !led;
+}
+
+void printPressure() {
+    queue.call(printf, "Pressure: %f\n", sensor.pressure());
 }
 
 // main() runs in its own thread in the OS
@@ -169,7 +207,10 @@ int main()
     MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
     data.MQTTVersion = 4;
     data.keepAliveInterval = 25;
-    data.clientID.cstring = MQTT_CLIENT_ID;
+    data.clientID.cstring = (char*) "6TRON";
+    data.username.cstring = (char*) "ARAHARA"; // Adafruit username
+    data.password.cstring = (char*) "aio_FWuu99W6kBGdYqeaPNTA3FNGZ3qV"; // Adafruit user key
+
     if (client->connect(data) != 0){
         printf("Connection to MQTT Broker Failed\n");
     }
@@ -186,6 +227,16 @@ int main()
 
     // Yield every 1 second
     id_yield = main_queue.call_every(SYNC_INTERVAL * 1000, yield);
+
+    eventThread.start(callback(&queue, &EventQueue::dispatch_forever));
+    sensor.initialize();
+    sensor.set_sampling();
+    while(1) {
+        float temperature = sensor.temperature();
+        float humidity = sensor.humidity();
+        printf("Temperature: %f°C, Humidity: %f%\n", temperature, humidity);
+        ThisThread::sleep_for(PERIOD_MS);
+    }
 
     // Publish
     button.fall(main_queue.event(publish));
