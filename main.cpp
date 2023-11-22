@@ -113,8 +113,9 @@ void temp_hum() {
     int charsWrittenTemp = snprintf(mqttPayloadTemp, sizeof(mqttPayloadTemp), "%f", temperature);
     later = Kernel::get_ms_count();
     if (later - now < 1000) {
-        ThisThread::sleep_for(1000-(later-now));
         printf("Sleep for %d ms\n", 1000-(later-now));
+        ThisThread::sleep_for(1000-(later-now));
+        
     }
     MQTT::Message messageTemp;
     messageTemp.qos = MQTT::QOS1;
@@ -138,8 +139,9 @@ void temp_hum() {
 
     later = Kernel::get_ms_count();
     if (later - now < 1000) {
-        ThisThread::sleep_for(1000-(later-now));
         printf("Sleep for %d ms\n", 1000-(later-now));
+        ThisThread::sleep_for(1000-(later-now));
+        
     }
     
     MQTT::Message messageHum;
@@ -162,17 +164,12 @@ static int8_t publish() {
 
     char mqttPayloadPressure[20];
     int charsWrittenPressure = snprintf(mqttPayloadPressure, sizeof(mqttPayloadPressure), "%f", pressure);
-
-    uint64_t later = Kernel::get_ms_count();
-    if (later - now < 1000) {
-        ThisThread::sleep_for(1000-(later-now));
-        printf("Sleep for %d ms\n", 1000-(later-now));
-    }
     
     later = Kernel::get_ms_count();
     if (later - now < 1000) {
+         printf("Sleep for %d ms\n", 1000-(later-now));
         ThisThread::sleep_for(1000-(later-now));
-        printf("Sleep for %d ms\n", 1000-(later-now));
+       
     }
     MQTT::Message messagePressure;
     messagePressure.qos = MQTT::QOS1;
